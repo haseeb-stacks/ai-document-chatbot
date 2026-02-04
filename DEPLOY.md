@@ -1,81 +1,91 @@
-# Deployment Instructions
+# Deployment Guide (Vertex AI & Cloud Run)
 
-This project uses FastAPI, LangChain, and Ollama. It can be run locally or deployed to Google Cloud Platform (GCP).
+This project is optimized for deployment on Google Cloud Platform using **Vertex AI** and **Cloud Run**. This serverless architecture provides high performance, automatic scaling, and minimal maintenance.
 
-## Local Development
+## 🚀 Automated Deployment
 
-1.  **Dependencies**: Ensure you are in the `agent` conda environment.
+The easiest way to deploy is using the provided `deploy_gcp.sh` script.
+
+1.  **Grant Permissions**:
     ```bash
-    conda activate agent
+    chmod +x deploy_gcp.sh
+    ```
+
+2.  **Run Deploy**:
+    ```bash
+    ./deploy_gcp.sh
+    ```
+
+## 🛠️ Manual Deployment Steps
+
+If you prefer to run commands manually, follow these steps:
+
+### 1. Project Configuration
+Replace `YOUR_PROJECT_ID` with your actual GCP project ID.
+```bash
+gcloud config set project YOUR_PROJECT_ID
+```
+
+### 2. Enable Required APIs
+```bash
+gcloud services enable \
+    aiplatform.googleapis.com \
+    run.googleapis.com \
+    artifactregistry.googleapis.com \
+    cloudbuild.googleapis.com
+```
+
+### 3. Grant IAM Roles for Vertex AI
+The Cloud Run service account needs permission to call the Gemini API.
+```bash
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
+SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+    --member="serviceAccount:${SERVICE_ACCOUNT}" \
+    --role="roles/aiplatform.user"
+```
+
+### 4. Build and Push to Artifact Registry
+```bash
+gcloud builds submit --tag us-central1-docker.pkg.dev/YOUR_PROJECT_ID/chatbot-repo/ai-doc-chatbot:latest
+```
+
+### 5. Deploy to Cloud Run
+```bash
+gcloud run deploy ai-doc-chatbot \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/chatbot-repo/ai-doc-chatbot:latest \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 1Gi \
+  --cpu 1 \
+  --timeout 300 \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+```
+
+## 💻 Local Development with Vertex AI
+
+To run the application locally while still using the cloud-based Vertex AI models:
+
+1.  **Login to Application Default Credentials**:
+    ```bash
+    gcloud auth application-default login
+    ```
+
+2.  **Install dependencies**:
+    ```bash
     pip install -r backend/requirements.txt
     ```
 
-2.  **Ollama**: Ensure Ollama is installed and running.
+3.  **Run with Project ID**:
     ```bash
-    ollama serve
-    ollama pull gemma3:4b
+    export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
+    python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     ```
 
-3.  **Run**:
-    ```bash
-    python backend/app/main.py
-    ```
-    Access the UI at `http://localhost:8000`.
+## 🔍 Troubleshooting
 
-## Docker & GCP Deployment
-
-Since this application requires a running LLM (Ollama), it needs sufficient memory (4GB+ recommended) and the container image will be larger than typical web apps.
-
-### 1. Build Docker Image
-
-```bash
-docker build -t ai-doc-chatbot .
-```
-
-### 2. Test Docker Locally
-
-```bash
-docker run -p 8000:8000 -e OLLAMA_MODEL=gemma2:2b ai-doc-chatbot
-```
-*Note: We use `gemma2:2b` in Docker to keep the download size manageable. You can change this in `entrypoint.sh` or via the env var.*
-
-### 3. Deploy to Google Cloud Run
-
-**Prerequisites**:
-- Google Cloud SDK (`gcloud`) installed and authenticated.
-- A GCP Project with billing enabled.
-
-**Steps**:
-
-1.  **Configure Project**:
-    ```bash
-    gcloud config set project YOUR_PROJECT_ID
-    ```
-
-2.  **Enable Artifact Registry**:
-    ```bash
-    gcloud services enable artifactregistry.googleapis.com run.googleapis.com
-    ```
-
-3.  **Build & Submit Image**:
-    ```bash
-    gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/ai-doc-chatbot
-    ```
-
-4.  **Deploy to Cloud Run**:
-    ```bash
-    gcloud run deploy ai-doc-chatbot \
-      --image gcr.io/YOUR_PROJECT_ID/ai-doc-chatbot \
-      --platform managed \
-      --region us-central1 \
-      --allow-unauthenticated \
-      --memory 4Gi \
-      --cpu 2 \
-      --timeout 300
-    ```
-    *Important: We increase memory to 4Gi and CPU to 2 to handle the LLM.*
-
-### Troubleshooting
-
--   **Ollama Connection**: The app waits for Ollama to be ready. If deployment times out, increase the `--timeout` or check logs.
--   **Cold Starts**: The first request might differ as the model loads into memory.
+-   **404 Model Not Found**: Ensure you are using a supported model version (e.g., `gemini-2.0-flash`). Check the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden).
+-   **Permission Denied**: Double-check that the `roles/aiplatform.user` role is granted to the correct service account.
+-   **Initialization Wait**: On its first start, the app will index the PDFs in the `/data` folder. Subsequent chats will be near-instant.
