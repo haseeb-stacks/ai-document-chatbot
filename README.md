@@ -68,5 +68,4 @@ chmod +x deploy_gcp.sh
 ./deploy_gcp.sh
 ```
 
----
-Built with ❤️ using Google Vertex AI.
+
